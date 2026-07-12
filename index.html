@@ -5,15 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#2563eb">
 <title>QR Code Genarator</title>
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
-<link rel="apple-touch-icon" href="./icon-192.png">
-<meta name="application-name" content="easyict QR Code Genarator">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="easyict QR">
-<meta name="mobile-web-app-capable" content="yes">
-
 <style>
 :root {
   color-scheme: light;
@@ -558,7 +549,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
 
   function buildContent() {
-    if (currentType === 'text') return $('textValue').value.trim();
+    if (currentType === 'text') return $('textValue').value.normalize('NFC').trim();
 
     if (currentType === 'website') return normaliseWebsite($('websiteUrl').value);
 
@@ -655,6 +646,34 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     canvases.slice(1).forEach((canvas) => canvas.remove());
   }
 
+  function drawCrispPreviewCanvas(px, dark, light) {
+    if (!qr || !qr._oQRCode) return;
+    const model = qr._oQRCode;
+    const moduleCount = model.getModuleCount();
+    const modulePx = Math.max(4, Math.round(px / moduleCount));
+    const renderSize = moduleCount * modulePx;
+    const canvas = document.createElement('canvas');
+    canvas.width = renderSize;
+    canvas.height = renderSize;
+    canvas.style.width = renderSize + 'px';
+    canvas.style.height = renderSize + 'px';
+    canvas.setAttribute('aria-label', 'Generated QR code');
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = light;
+    ctx.fillRect(0, 0, renderSize, renderSize);
+    ctx.fillStyle = dark;
+    for (let row = 0; row < moduleCount; row++) {
+      for (let col = 0; col < moduleCount; col++) {
+        if (model.isDark(row, col)) {
+          ctx.fillRect(col * modulePx, row * modulePx, modulePx, modulePx);
+        }
+      }
+    }
+    qrcodeEl.innerHTML = '';
+    qrcodeEl.appendChild(canvas);
+  }
+
   function renderQR(silent = false) {
     const text = updateEncodedPreview();
     if (!text) {
@@ -687,6 +706,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       });
 
       removeDuplicateQrElements();
+      drawCrispPreviewCanvas(px, dark, light);
       const moduleCount = qr._oQRCode && qr._oQRCode.getModuleCount ? qr._oQRCode.getModuleCount() : 0;
       emptyState.style.display = 'none';
       qrcodeEl.style.display = 'block';
@@ -711,41 +731,52 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
 
   function exportCanvas() {
-    const source = getCanvas();
-    if (!source || !qr || !qr._oQRCode) throw new Error('Generate a QR code first.');
-    const moduleCount = qr._oQRCode.getModuleCount();
-    const marginModules = Number(margin.value);
-    const baseSize = Number(size.value);
-    const modulePx = baseSize / moduleCount;
-    const marginPx = Math.max(1, Math.round(modulePx * marginModules));
-    const qrAreaHeight = baseSize + marginPx * 2;
+    if (!qr || !qr._oQRCode) throw new Error('Generate a QR code first.');
+    const model = qr._oQRCode;
+    const moduleCount = model.getModuleCount();
+    const marginModules = Math.max(4, Number(margin.value) || 4);
     const footerText = 'Developed By Samiru Dinushan';
-    const fontSize = Math.max(11, Math.min(18, Math.round((baseSize + marginPx * 2) / 34)));
-    const footerHeight = Math.max(36, Math.round(fontSize * 2));
-    const logicalWidth = baseSize + marginPx * 2;
-    const logicalHeight = qrAreaHeight + footerHeight;
-    const exportScale = Math.max(4, Math.ceil(1200 / logicalWidth));
+
+    // Every QR module is drawn as an exact integer-sized square. This avoids
+    // blurred edges and makes short plain-text QR codes scan reliably.
+    const modulePx = Math.max(16, Math.ceil(1200 / (moduleCount + marginModules * 2)));
+    const qrPixels = moduleCount * modulePx;
+    const marginPx = marginModules * modulePx;
+    const logicalWidth = qrPixels + marginPx * 2;
+    const fontSize = Math.max(18, Math.min(28, Math.round(logicalWidth / 42)));
+    const footerHeight = Math.max(54, Math.round(fontSize * 2.15));
+    const qrAreaHeight = qrPixels + marginPx * 2;
 
     const output = document.createElement('canvas');
-    output.width = logicalWidth * exportScale;
-    output.height = logicalHeight * exportScale;
+    output.width = logicalWidth;
+    output.height = qrAreaHeight + footerHeight;
     const ctx = output.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    ctx.scale(exportScale, exportScale);
 
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, logicalWidth, logicalHeight);
-    ctx.drawImage(source, marginPx, marginPx, baseSize, baseSize);
+    ctx.fillRect(0, 0, output.width, output.height);
 
-    ctx.save();
+    ctx.fillStyle = darkColor.value || '#111827';
+    for (let row = 0; row < moduleCount; row++) {
+      for (let col = 0; col < moduleCount; col++) {
+        if (model.isDark(row, col)) {
+          ctx.fillRect(
+            marginPx + col * modulePx,
+            marginPx + row * modulePx,
+            modulePx,
+            modulePx
+          );
+        }
+      }
+    }
+
     ctx.fillStyle = '#D1D5DB';
     ctx.fillRect(Math.round(logicalWidth * 0.09), qrAreaHeight, Math.round(logicalWidth * 0.82), 1);
     ctx.fillStyle = '#111827';
-    ctx.font = `300 ${fontSize}px "Lorem ipsum dolor sit amet", Arial, Helvetica, sans-serif`;
+    ctx.font = `300 ${fontSize}px Arial, Helvetica, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(footerText, logicalWidth / 2, qrAreaHeight + footerHeight / 2);
-    ctx.restore();
     return output;
   }
 
@@ -770,7 +801,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const canvas = exportCanvas();
       const blob = await canvasToBlob(canvas);
       downloadBlob(blob, cleanFilename(filename.value) + '.png');
-      showToast('Clear PNG downloaded');
+      showToast('Scannable PNG downloaded');
     } catch (error) {
       showToast(error.message || 'Could not download PNG');
     }
@@ -965,25 +996,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   updateEncodedPreview();
   if (params.get('autogenerate') === '1' && buildContent()) renderQR(true);
 
-  window.__qrAppVersion = '3.0-pwa';
+  window.__qrAppVersion = '2.0';
 })();
 </script>
-
-<script>
-(function registerEasyictPWA() {
-  if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
-  window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./service-worker.js', { scope: './' })
-      .then(function (registration) {
-        window.__easyictPWAReady = true;
-        registration.update().catch(function () {});
-      })
-      .catch(function (error) {
-        console.warn('PWA service worker registration failed:', error);
-      });
-  });
-})();
-</script>
-
 </body>
 </html>
